@@ -10,6 +10,9 @@ import (
 	"github.com/cert-manager/cert-manager/pkg/acme/webhook/apis/acme/v1alpha1"
 	"github.com/cert-manager/cert-manager/pkg/acme/webhook/cmd"
 	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
+	"github.com/go-gandi/go-gandi"
+	"github.com/go-gandi/go-gandi/config"
+	"github.com/go-gandi/go-gandi/livedns"
 	extapi "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -63,7 +66,7 @@ type gandiDNSProviderSolver struct {
 type gandiDNSProviderConfig struct {
 	// These fields will be set by users in the
 	// `issuer.spec.acme.dns01.providers.webhook.config` field.
-	APIKeySecretRef cmmeta.SecretKeySelector `json:"apiKeySecretRef"`
+	PATSecretRef cmmeta.SecretKeySelector `json:"PATSecretRef"`
 }
 
 // Name is used as the name for this DNS solver when referencing it on the ACME
@@ -85,37 +88,36 @@ func (c *gandiDNSProviderSolver) Present(ch *v1alpha1.ChallengeRequest) error {
 	klog.V(6).Infof("call function Present: namespace=%s, zone=%s, fqdn=%s",
 		ch.ResourceNamespace, ch.ResolvedZone, ch.ResolvedFQDN)
 
-	cfg, err := loadConfig(ch.Config)
+	gandiClient, err := c.getGandiClient(ch.Config, ch.ResourceNamespace)
 	if err != nil {
-		return fmt.Errorf("unable to load config: %v", err)
+		return fmt.Errorf("unable to get Gandi client: %v", err)
 	}
 
-	klog.V(6).Infof("decoded configuration %v", cfg)
+	challengeFQDN, domain := c.getDomainAndChallengeFQDN(ch)
+	klog.V(6).Infof("present for challengeFQDN=%s, domain=%s", challengeFQDN, domain)
 
-	apiKey, err := c.getApiKey(&cfg, ch.ResourceNamespace)
+	domainRecord, err := gandiClient.GetDomainRecordByNameAndType(domain, challengeFQDN, "TXT")
 	if err != nil {
-		return fmt.Errorf("unable to get API key: %v", err)
+		return fmt.Errorf("present: pre: unable to check TXT record: %v", err)
 	}
 
-	gandiClient := NewGandiClient(*apiKey)
+	recordVal := [...]string{ch.Key}
 
-	entry, domain := c.getDomainAndEntry(ch)
-	klog.V(6).Infof("present for entry=%s, domain=%s", entry, domain)
-
-	present, err := gandiClient.HasTxtRecord(&domain, &entry)
-	if err != nil {
-		return fmt.Errorf("unable to check TXT record: %v", err)
-	}
-
-	if present {
-		err := gandiClient.UpdateTxtRecord(&domain, &entry, &ch.Key, GandiMinTtl)
+	if domainRecord.RrsetName != "" && len(domainRecord.RrsetValues) > 0 {
+		resp, err := gandiClient.UpdateDomainRecordByNameAndType(domain, challengeFQDN, "TXT", GandiMinTtl, recordVal[:])
 		if err != nil {
 			return fmt.Errorf("unable to change TXT record: %v", err)
 		}
+		if resp.Code != 200 {
+			return fmt.Errorf("got code %d while trying to change TXT record: %v", resp.Code, domain)
+		}
 	} else {
-		err := gandiClient.CreateTxtRecord(&domain, &entry, &ch.Key, GandiMinTtl)
+		resp, err := gandiClient.UpdateDomainRecordByNameAndType(domain, challengeFQDN, "TXT", GandiMinTtl, recordVal[:])
 		if err != nil {
 			return fmt.Errorf("unable to create TXT record: %v", err)
+		}
+		if resp.Code != 200 {
+			return fmt.Errorf("got code %d while trying to create TXT record: %v", resp.Code, domain)
 		}
 	}
 
@@ -132,28 +134,21 @@ func (c *gandiDNSProviderSolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 	klog.V(6).Infof("call function CleanUp: namespace=%s, zone=%s, fqdn=%s",
 		ch.ResourceNamespace, ch.ResolvedZone, ch.ResolvedFQDN)
 
-	cfg, err := loadConfig(ch.Config)
+	gandiClient, err := c.getGandiClient(ch.Config, ch.ResourceNamespace)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to get Gandi client: %v", err)
 	}
 
-	apiKey, err := c.getApiKey(&cfg, ch.ResourceNamespace)
+	challengeFQDN, domain := c.getDomainAndChallengeFQDN(ch)
+
+	domainRecord, err := gandiClient.GetDomainRecordByNameAndType(domain, challengeFQDN, "TXT")
 	if err != nil {
-		return fmt.Errorf("unable to get API key: %v", err)
+		return fmt.Errorf("cleanup: pre: unable to check TXT record: %v", err)
 	}
 
-	gandiClient := NewGandiClient(*apiKey)
-
-	entry, domain := c.getDomainAndEntry(ch)
-
-	present, err := gandiClient.HasTxtRecord(&domain, &entry)
-	if err != nil {
-		return fmt.Errorf("unable to check TXT record: %v", err)
-	}
-
-	if present {
-		klog.V(6).Infof("deleting entry=%s, domain=%s", entry, domain)
-		err := gandiClient.DeleteTxtRecord(&domain, &entry)
+	if domainRecord.RrsetName != "" && len(domainRecord.RrsetValues) > 0 {
+		klog.V(6).Infof("deleting challengeFQDN=%s, domain=%s", challengeFQDN, domain)
+		err := gandiClient.DeleteDomainRecord(domain, challengeFQDN, "TXT")
 		if err != nil {
 			return fmt.Errorf("unable to remove TXT record: %v", err)
 		}
@@ -181,46 +176,45 @@ func (c *gandiDNSProviderSolver) Initialize(kubeClientConfig *rest.Config, _ <-c
 	return nil
 }
 
-// loadConfig is a small helper function that decodes JSON configuration into
-// the typed config struct.
-func loadConfig(cfgJSON *extapi.JSON) (gandiDNSProviderConfig, error) {
+// getGandiClient instantiates a go-gandi livedns client
+// This replaces the previous 3 smaller methods, and makes caller functions cleaner
+func (c *gandiDNSProviderSolver) getGandiClient(cfgJSON *extapi.JSON, namespace string) (*livedns.LiveDNS, error) {
 	cfg := gandiDNSProviderConfig{}
 	// handle the 'base case' where no configuration has been provided
 	if cfgJSON == nil {
-		return cfg, nil
+		return nil, fmt.Errorf("no configuration provided: %v", cfgJSON)
 	}
 	if err := json.Unmarshal(cfgJSON.Raw, &cfg); err != nil {
-		return cfg, fmt.Errorf("error decoding solver config: %v", err)
+		return nil, fmt.Errorf("error decoding solver config: %v", err)
 	}
 
-	return cfg, nil
-}
+	secretName := cfg.PATSecretRef.LocalObjectReference.Name
 
-func (c *gandiDNSProviderSolver) getDomainAndEntry(ch *v1alpha1.ChallengeRequest) (string, string) {
-	// Both ch.ResolvedZone and ch.ResolvedFQDN end with a dot: '.'
-	entry := strings.TrimSuffix(ch.ResolvedFQDN, ch.ResolvedZone)
-	entry = strings.TrimSuffix(entry, ".")
-	domain := strings.TrimSuffix(ch.ResolvedZone, ".")
-	return entry, domain
-}
-
-// Get Gandi API key from Kubernetes secret.
-func (c *gandiDNSProviderSolver) getApiKey(cfg *gandiDNSProviderConfig, namespace string) (*string, error) {
-	secretName := cfg.APIKeySecretRef.LocalObjectReference.Name
-
-	klog.V(6).Infof("try to load secret `%s` with key `%s`", secretName, cfg.APIKeySecretRef.Key)
+	klog.V(6).Infof("try to load secret `%s` with key `%s`", secretName, cfg.PATSecretRef.Key)
 
 	sec, err := c.client.CoreV1().Secrets(namespace).Get(context.Background(), secretName, metav1.GetOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("unable to get secret `%s`; %v", secretName, err)
 	}
 
-	secBytes, ok := sec.Data[cfg.APIKeySecretRef.Key]
+	secBytes, ok := sec.Data[cfg.PATSecretRef.Key]
 	if !ok {
-		return nil, fmt.Errorf("key %q not found in secret \"%s/%s\"", cfg.APIKeySecretRef.Key,
-			cfg.APIKeySecretRef.LocalObjectReference.Name, namespace)
+		return nil, fmt.Errorf("key %q not found in secret \"%s/%s\"", cfg.PATSecretRef.Key,
+			cfg.PATSecretRef.LocalObjectReference.Name, namespace)
 	}
 
-	apiKey := string(secBytes)
-	return &apiKey, nil
+	pat := string(secBytes)
+	gandiConfig := config.Config{PersonalAccessToken: pat}
+
+	liveDNSClient := gandi.NewLiveDNSClient(gandiConfig)
+
+	return liveDNSClient, nil
+}
+
+func (c *gandiDNSProviderSolver) getDomainAndChallengeFQDN(ch *v1alpha1.ChallengeRequest) (string, string) {
+	// Both ch.ResolvedZone and ch.ResolvedFQDN end with a dot: '.'
+	entry := strings.TrimSuffix(ch.ResolvedFQDN, ch.ResolvedZone)
+	entry = strings.TrimSuffix(entry, ".")
+	domain := strings.TrimSuffix(ch.ResolvedZone, ".")
+	return entry, domain
 }

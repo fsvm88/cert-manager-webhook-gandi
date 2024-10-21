@@ -17,6 +17,6 @@ spec:
             groupName: acme.fsvm88.me
             solverName: gandi
             config:
-              apiKeySecretRef:
+              patSecretRef:
                 key: api-token
                 name: gandi-credentials
