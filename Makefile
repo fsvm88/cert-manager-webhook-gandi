@@ -14,7 +14,7 @@ IMAGE_TAG := 0.2.0
 
 OUT := $(shell pwd)/_out
 
-KUBEBUILDER_VERSION=4.2.0
+KUBEBUILDER_VERSION=2.3.1
 
 $(shell mkdir -p "${OUT}")
 
@@ -25,8 +25,12 @@ test: _test/kubebuilder
 	go test -v .
 
 _test/kubebuilder:
-	mkdir -p _test/
-	curl -fsSL https://github.com/kubernetes-sigs/kubebuilder/releases/download/v${KUBEBUILDER_VERSION}/kubebuilder_${OS}_${ARCH} -o _test/kubebuilder
+	curl -fsSL https://github.com/kubernetes-sigs/kubebuilder/releases/download/v${KUBEBUILDER_VERSION}/kubebuilder_${KUBEBUILDER_VERSION}_${OS}_${ARCH}.tar.gz -o kubebuilder-tools.tar.gz
+	mkdir -p _test/kubebuilder
+	tar -xvf kubebuilder-tools.tar.gz
+	mv kubebuilder_${KUBEBUILDER_VERSION}_${OS}_${ARCH}/bin _test/kubebuilder/
+	rm kubebuilder-tools.tar.gz
+	rm -R kubebuilder_${KUBEBUILDER_VERSION}_${OS}_${ARCH}
 
 clean: clean-kubebuilder
 
