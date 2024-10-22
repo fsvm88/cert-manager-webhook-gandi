@@ -94,30 +94,31 @@ func (c *gandiDNSProviderSolver) Present(ch *v1alpha1.ChallengeRequest) error {
 	}
 
 	challengeFQDN, domain := c.getDomainAndChallengeFQDN(ch)
-	klog.V(6).Infof("present for challengeFQDN=%s, domain=%s", challengeFQDN, domain)
+	klog.V(6).Infof("present: for challengeFQDN=%s, domain=%s", challengeFQDN, domain)
 
 	domainRecord, err := gandiClient.GetDomainRecordByNameAndType(domain, challengeFQDN, "TXT")
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "404") {
 		return fmt.Errorf("present: pre: unable to check TXT record: %v", err)
 	}
+	klog.V(6).Infof("present: pre: domainRecord=%v", domainRecord)
 
 	recordVal := [...]string{ch.Key}
 
 	if domainRecord.RrsetName != "" && len(domainRecord.RrsetValues) > 0 {
 		resp, err := gandiClient.UpdateDomainRecordByNameAndType(domain, challengeFQDN, "TXT", GandiMinTtl, recordVal[:])
 		if err != nil {
-			return fmt.Errorf("unable to change TXT record: %v", err)
+			return fmt.Errorf("present: unable to change TXT record: %v", err)
 		}
-		if resp.Code != 200 {
-			return fmt.Errorf("got code %d while trying to change TXT record: %v", resp.Code, domain)
+		if resp.Code != 0 {
+			return fmt.Errorf("present: got code %d while trying to change TXT record: %v", resp.Code, domain)
 		}
 	} else {
-		resp, err := gandiClient.UpdateDomainRecordByNameAndType(domain, challengeFQDN, "TXT", GandiMinTtl, recordVal[:])
+		resp, err := gandiClient.CreateDomainRecord(domain, challengeFQDN, "TXT", GandiMinTtl, recordVal[:])
 		if err != nil {
-			return fmt.Errorf("unable to create TXT record: %v", err)
+			return fmt.Errorf("present: unable to create TXT record: %v", err)
 		}
-		if resp.Code != 200 {
-			return fmt.Errorf("got code %d while trying to create TXT record: %v", resp.Code, domain)
+		if resp.Code != 0 {
+			return fmt.Errorf("present: got code %d while trying to create TXT record: %v", resp.Code, domain)
 		}
 	}
 
@@ -136,21 +137,22 @@ func (c *gandiDNSProviderSolver) CleanUp(ch *v1alpha1.ChallengeRequest) error {
 
 	gandiClient, err := c.getGandiClient(ch.Config, ch.ResourceNamespace)
 	if err != nil {
-		return fmt.Errorf("unable to get Gandi client: %v", err)
+		return fmt.Errorf("cleanup: unable to get Gandi client: %v", err)
 	}
 
 	challengeFQDN, domain := c.getDomainAndChallengeFQDN(ch)
 
 	domainRecord, err := gandiClient.GetDomainRecordByNameAndType(domain, challengeFQDN, "TXT")
-	if err != nil {
+	if err != nil && !strings.Contains(err.Error(), "404") {
 		return fmt.Errorf("cleanup: pre: unable to check TXT record: %v", err)
 	}
+	klog.V(6).Infof("cleanup: going to delete %v", domainRecord)
 
 	if domainRecord.RrsetName != "" && len(domainRecord.RrsetValues) > 0 {
-		klog.V(6).Infof("deleting challengeFQDN=%s, domain=%s", challengeFQDN, domain)
+		klog.V(6).Infof("cleanup: deleting challengeFQDN=%s, domain=%s", challengeFQDN, domain)
 		err := gandiClient.DeleteDomainRecord(domain, challengeFQDN, "TXT")
 		if err != nil {
-			return fmt.Errorf("unable to remove TXT record: %v", err)
+			return fmt.Errorf("cleanup: unable to remove TXT record: %v", err)
 		}
 	}
 
