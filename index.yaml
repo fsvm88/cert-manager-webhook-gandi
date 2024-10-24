@@ -2,6 +2,14 @@ apiVersion: v1
 entries:
   cert-manager-webhook-gandi:
   - apiVersion: v2
+    created: "2024-10-24T20:43:54.593873201Z"
+    description: A Helm chart for cert-manager-webhook-gandi
+    digest: 4456b3f42bdb92319ac9123ecfa9286992c750ba4d25589ff3abb10474d168fc
+    name: cert-manager-webhook-gandi
+    urls:
+    - https://github.com/fsvm88/cert-manager-webhook-gandi/releases/download/v0.3.3/cert-manager-webhook-gandi-v0.3.3.tgz
+    version: v0.3.3
+  - apiVersion: v2
     created: "2021-10-24T20:28:18.867304845Z"
     description: A Helm chart for cert-manager-webhook-gandi
     digest: 243db4f378a222997b90baa1a00df271af487e60d61967b4d26d2648092dc66a
@@ -9,4 +17,4 @@ entries:
     urls:
     - https://github.com/bwolf/cert-manager-webhook-gandi/releases/download/v0.2.0/cert-manager-webhook-gandi-v0.2.0.tgz
     version: v0.2.0
-generated: "2021-10-24T20:28:18.867311245Z"
+generated: "2024-10-24T20:43:54.593885433Z"
