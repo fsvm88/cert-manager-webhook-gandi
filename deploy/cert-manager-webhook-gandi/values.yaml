@@ -1,14 +1,14 @@
-groupName: acme.bwolf.me
+groupName: acme.fsvm88.me
 logLevel: 6
 certManager:
   namespace: cert-manager
   serviceAccountName: cert-manager
 image:
-  repository: bwolf/cert-manager-webhook-gandi
+  repository: fsvm88/cert-manager-webhook-gandi
   tag: 0.2.0
   pullPolicy: IfNotPresent
-nameOverride: ''
-fullnameOverride: ''
+nameOverride: ""
+fullnameOverride: ""
 service:
   type: ClusterIP
   port: 443

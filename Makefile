@@ -1,5 +1,6 @@
 OS ?= $(shell go env GOOS)
-ARCH ?= $(shell go env GOARCH)
+ARCH = amd64
+#ARCH ?= $(shell go env GOARCH)
 
 ifeq (Darwin, $(shell uname))
 	GREP_PREGEX_FLAG := E
@@ -9,40 +10,36 @@ endif
 
 GO_VERSION ?= $(shell go mod edit -json | grep -${GREP_PREGEX_FLAG}o '"Go":\s+"([0-9.]+)"' | sed -E 's/.+"([0-9.]+)"/\1/')
 
-IMAGE_NAME := bwolf/cert-manager-webhook-gandi
+IMAGE_NAME := fsvm88/cert-manager-webhook-gandi
 IMAGE_TAG := 0.2.0
 
 OUT := $(shell pwd)/_out
 
-KUBEBUILDER_VERSION=2.3.2
+K8S_VERSION=1.31.0
 
 $(shell mkdir -p "${OUT}")
 
-test: _test/kubebuilder
-	TEST_ASSET_ETCD=_test/kubebuilder/bin/etcd \
-	TEST_ASSET_KUBE_APISERVER=_test/kubebuilder/bin/kube-apiserver \
-	TEST_ASSET_KUBECTL=_test/kubebuilder/bin/kubectl \
+test: _test/controller-tools
+	TEST_ASSET_ETCD=_test/controller-tools/envtest/etcd \
+	TEST_ASSET_KUBE_APISERVER=_test/controller-tools/envtest/kube-apiserver \
+	TEST_ASSET_KUBECTL=_test/controller-tools/envtest/kubectl \
 	go test -v .
 
-_test/kubebuilder:
-	curl -fsSL https://github.com/kubernetes-sigs/kubebuilder/releases/download/v${KUBEBUILDER_VERSION}/kubebuilder_${KUBEBUILDER_VERSION}_${OS}_${ARCH}.tar.gz -o kubebuilder-tools.tar.gz
-	mkdir -p _test/kubebuilder
-	tar -xvf kubebuilder-tools.tar.gz
-	mv kubebuilder_${KUBEBUILDER_VERSION}_${OS}_${ARCH}/bin _test/kubebuilder/
-	rm kubebuilder-tools.tar.gz
-	rm -R kubebuilder_${KUBEBUILDER_VERSION}_${OS}_${ARCH}
+_test/controller-tools:
+	mkdir -p _test
+	curl -fSL https://github.com/kubernetes-sigs/controller-tools/releases/download/envtest-v${K8S_VERSION}/envtest-v${K8S_VERSION}-${OS}-${ARCH}.tar.gz -o _test/controller-tools.tar.gz
+	tar -xvf _test/controller-tools.tar.gz -C _test/
+	rm _test/controller-tools.tar.gz
 
-clean: clean-kubebuilder
-
-clean-kubebuilder:
-	rm -Rf _test/kubebuilder
+clean:
+	rm -rf _test/controller-tools
 
 build:
 	docker buildx build --target=image --platform=linux/amd64 --output=type=docker,name=${IMAGE_NAME}:${IMAGE_TAG} --tag=${IMAGE_NAME}:latest --build-arg=GO_VERSION=${GO_VERSION} .
 
 package:
 	helm package deploy/cert-manager-webhook-gandi -d charts/
-	helm repo index charts/ --url https://bwolf.github.io/cert-manager-webhook-gandi
+	helm repo index charts/ --url https://fsvm88.github.io/cert-manager-webhook-gandi
 
 .PHONY: rendered-manifest.yaml
 rendered-manifest.yaml:
