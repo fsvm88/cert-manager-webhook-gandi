@@ -1,5 +1,6 @@
 OS ?= $(shell go env GOOS)
-ARCH ?= $(shell go env GOARCH)
+ARCH = amd64
+#ARCH ?= $(shell go env GOARCH)
 
 ifeq (Darwin, $(shell uname))
 	GREP_PREGEX_FLAG := E
@@ -14,23 +15,21 @@ IMAGE_TAG := 0.2.0
 
 OUT := $(shell pwd)/_out
 
-KUBEBUILDER_VERSION=2.3.1
+K8S_VERSION=1.31.0
 
 $(shell mkdir -p "${OUT}")
 
-test: _test/kubebuilder
-	TEST_ASSET_ETCD=_test/kubebuilder/bin/etcd \
-	TEST_ASSET_KUBE_APISERVER=_test/kubebuilder/bin/kube-apiserver \
-	TEST_ASSET_KUBECTL=_test/kubebuilder/bin/kubectl \
+test: _test/controller-tools
+	TEST_ASSET_ETCD=_test/controller-tools/envtest/etcd \
+	TEST_ASSET_KUBE_APISERVER=_test/controller-tools/envtest/kube-apiserver \
+	TEST_ASSET_KUBECTL=_test/controller-tools/envtest/kubectl \
 	go test -v .
 
-_test/kubebuilder:
-	curl -fsSL https://github.com/kubernetes-sigs/kubebuilder/releases/download/v${KUBEBUILDER_VERSION}/kubebuilder_${KUBEBUILDER_VERSION}_${OS}_${ARCH}.tar.gz -o kubebuilder-tools.tar.gz
-	mkdir -p _test/kubebuilder
-	tar -xvf kubebuilder-tools.tar.gz
-	mv kubebuilder_${KUBEBUILDER_VERSION}_${OS}_${ARCH}/bin _test/kubebuilder/
-	rm kubebuilder-tools.tar.gz
-	rm -R kubebuilder_${KUBEBUILDER_VERSION}_${OS}_${ARCH}
+_test/controller-tools:
+	mkdir -p _test
+	curl -fSL https://github.com/kubernetes-sigs/controller-tools/releases/download/envtest-v${K8S_VERSION}/envtest-v${K8S_VERSION}-${OS}-${ARCH}.tar.gz -o _test/controller-tools.tar.gz
+	tar -xvf _test/controller-tools.tar.gz -C _test/
+	rm _test/controller-tools.tar.gz
 
 clean: clean-kubebuilder
 
