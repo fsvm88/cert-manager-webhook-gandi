@@ -29,16 +29,6 @@ jobs:
           echo ::set-output name=build_version::${GITHUB_REF#refs/tags/v}
           echo ::set-output name=chart_version::${GITHUB_REF#refs/tags/}
 
-      - name: Get last release
-        id: last_release
-        shell: bash
-        run: |
-          tag=$(gh release list | sed -n '1 p' | awk '{print $(NF -1);}')
-          sha=$(git show-ref --tags | grep $tag | awk '{print $1;}')
-          echo ::set-output name=sha::$sha
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   build:
     needs: base
 
