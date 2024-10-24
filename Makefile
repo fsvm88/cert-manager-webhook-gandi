@@ -31,10 +31,8 @@ _test/controller-tools:
 	tar -xvf _test/controller-tools.tar.gz -C _test/
 	rm _test/controller-tools.tar.gz
 
-clean: clean-kubebuilder
-
-clean-kubebuilder:
-	rm -Rf _test/kubebuilder
+clean:
+	rm -rf _test/controller-tools
 
 build:
 	docker buildx build --target=image --platform=linux/amd64 --output=type=docker,name=${IMAGE_NAME}:${IMAGE_TAG} --tag=${IMAGE_NAME}:latest --build-arg=GO_VERSION=${GO_VERSION} .
